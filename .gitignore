@@ -8,3 +8,7 @@
 *.tif.aux.xml
 *.html
 dist/
+build/
+.pytest_cache/
+.venv/
+.DS_Store

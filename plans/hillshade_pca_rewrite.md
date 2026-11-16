@@ -138,7 +138,7 @@ Each phase is one GitHub issue on the fork.
 - Enable Issues on `burningsage/disco-tif`, open the phase issues and add them to the project board.
 - Merge `Dev` into `master`, so master holds the last working 0.0.x code, then branch `rewrite` from `master`.
 - Update LICENSE.md: keep "Copyright (c) 2024 EMerald Geomodelling" and add "Copyright (c) 2026 Benjamin Bloss". Still MIT.
-- Replace `setup.py` with `pyproject.toml`: requires-python >= 3.10, dependencies numpy >= 1.24 and rasterio >= 1.3, a `[plot]` extra for matplotlib, a `[test]` extra for pytest, and the `disco-tif` console script.
+- Replace `setup.py` with `pyproject.toml`: requires-python >= 3.10, dependencies numpy >= 1.24 and rasterio >= 1.3, a `[plot]` extra for matplotlib, and a `[test]` extra for pytest and scikit-learn. The `disco-tif` console script is added in Phase 4 together with `cli.py`, so no broken entry point ships before then.
 - Point the project URLs at the fork, and update the author email.
 - Add `Notebook_summary_read_me.md`.
 - Add a GitHub Actions workflow that runs the tests on 3.10 to 3.13.
