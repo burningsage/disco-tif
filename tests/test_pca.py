@@ -3,8 +3,9 @@
 import numpy as np
 import pytest
 
+from disco_tif.hillshade import shade
 from disco_tif.normals import unit_normals
-from disco_tif.pca import Moments
+from disco_tif.pca import DEFAULT_ALTITUDES, DEFAULT_AZIMUTHS, Moments, basis_from_moments, sun_matrix, transform
 
 
 def _normals(n=80, cell=10.0, seed=0):
@@ -39,3 +40,37 @@ def test_moments_add_across_blocks():
 def test_covariance_needs_two_cells():
     with pytest.raises(ValueError):
         Moments.of(np.full((1, 1, 3), 0.5)).cov
+
+
+def _explicit_stack(normals, azimuths, altitudes):
+    """Explicit unclipped hillshade stack, one column per sun direction (valid cells only)."""
+    flat = normals.reshape(-1, 3)
+    flat = flat[~np.isnan(flat).any(axis=1)]
+    return np.stack([shade(flat, a, h) for a in azimuths for h in altitudes], axis=1), flat
+
+
+def test_closed_form_matches_sklearn_on_explicit_hillshades():
+    from sklearn.decomposition import PCA
+
+    u = _normals()
+    stack, flat = _explicit_stack(u, DEFAULT_AZIMUTHS, DEFAULT_ALTITUDES)
+    ref = PCA(n_components=3).fit(stack)
+    basis = basis_from_moments(Moments.of(u))
+    np.testing.assert_allclose(basis.eigenvalues, ref.explained_variance_, rtol=1e-9)
+    np.testing.assert_allclose(basis.explained, ref.explained_variance_ratio_, rtol=1e-9)
+    ours, theirs = transform(flat, basis), ref.transform(stack)
+    np.testing.assert_allclose(np.abs(ours), np.abs(theirs), atol=1e-9)
+
+
+def test_transform_keeps_nan_and_shape():
+    u = _normals(20)
+    u[4, 5] = np.nan
+    scores = transform(u, basis_from_moments(Moments.of(u)))
+    assert scores.shape == u.shape
+    assert np.isnan(scores[4, 5]).all() and np.isfinite(np.delete(scores.reshape(-1, 3), 4 * 20 + 5, 0)).all()
+
+
+@pytest.mark.parametrize("azimuths, altitudes", [((0, 180), (30,)), ((0, 90, 180), (90,))])
+def test_sun_matrix_rejects_degenerate_sets(azimuths, altitudes):
+    with pytest.raises(ValueError, match="span 3-D"):
+        sun_matrix(azimuths, altitudes)
