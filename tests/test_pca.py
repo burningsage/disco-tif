@@ -142,3 +142,49 @@ def test_stretch_limits_ignore_nan():
     low, high = stretch_limits(scores, (1, 99))
     np.testing.assert_allclose(low, np.nanpercentile(scores[:, 0], 1))
     np.testing.assert_allclose(high, np.nanpercentile(scores[:, 0], 99))
+
+
+def _earthpy_hillshade(arr, azimuth, altitude):
+    """earthpy.spatial.hillshade (0.9.x), copied as a reference: unit spacing, 0-255, unclipped."""
+    x, y = np.gradient(arr)
+    slope = np.pi / 2.0 - np.arctan(np.sqrt(x * x + y * y))
+    aspect = np.arctan2(-x, y)
+    azimuthrad = (360.0 - azimuth) * np.pi / 180.0
+    altituderad = altitude * np.pi / 180.0
+    shaded = (np.sin(altituderad) * np.sin(slope)
+              + np.cos(altituderad) * np.cos(slope) * np.cos((azimuthrad - np.pi / 2.0) - aspect))
+    return 255 * (shaded + 1) / 2
+
+
+@pytest.mark.parametrize("azimuth, altitude", [(0, 30), (45, 30), (135, 60), (200, 45), (315, 60)])
+def test_unit_spacing_reproduces_earthpy(azimuth, altitude):
+    """At unit spacing the new shading equals 0.0.x's earthpy hillshade, same azimuth convention.
+
+    So the only change from 0.0.x outputs is the slope scaling by the real cell size.
+    """
+    rng = np.random.default_rng(5)
+    yy, xx = np.mgrid[0:60, 0:60]
+    z = 5 * np.sin(xx / 7) * np.cos(yy / 9) + 0.3 * xx + rng.normal(0, 0.2, xx.shape)
+    ours = 255 * (shade(unit_normals(z, 1.0, -1.0), azimuth, altitude) + 1) / 2
+    np.testing.assert_allclose(ours, _earthpy_hillshade(z, azimuth, altitude), atol=1e-10)
+
+
+def test_number_of_evenly_spaced_azimuths_does_not_matter():
+    """4, 8 and 32 evenly spaced azimuths give the same components and explained ratios.
+
+    With evenly spaced azimuths SᵀS depends only on the altitudes, up to a scale, so
+    the scores scale by a constant and their shape is unchanged.
+    """
+    u = _normals()
+    fits = [basis_from_moments(Moments.of(u), tuple(np.arange(k) * 360 / k), (30, 60)) for k in (4, 8, 32)]
+    unit = [f.weights / np.linalg.norm(f.weights, axis=0) for f in fits]
+    for f, w in zip(fits[1:], unit[1:]):
+        np.testing.assert_allclose(f.explained, fits[0].explained, rtol=1e-9)
+        np.testing.assert_allclose(w, unit[0], atol=1e-9)
+
+
+def test_uneven_azimuths_do_change_the_components():
+    u = _normals()
+    even = basis_from_moments(Moments.of(u), (0, 90, 180, 270), (30, 60))
+    lopsided = basis_from_moments(Moments.of(u), (270, 300, 315, 330), (30, 60))
+    assert not np.allclose(even.explained, lopsided.explained, rtol=1e-3)

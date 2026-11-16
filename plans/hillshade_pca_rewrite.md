@@ -23,7 +23,7 @@ Consequences:
 - The hillshade stack never needs to exist. The azimuths and altitudes only set a fixed 3x3 weighting, `AᵀA`.
 - The fit needs one pass that accumulates a mean (3 values) and a covariance (3x3) over the pixels. These sums add exactly across blocks and across rasters, so there is no sampling error and no size limit.
 - The 24-hillshade cap, the `n_features >= 4` rule and the `n_components < n_hillshades` rule all go away. There are always exactly 3 components.
-- For evenly spaced azimuths (3 or more), `AᵀA` is diagonal and the same whatever the count, so the result should depend only on the altitudes. Uneven azimuth sets give directional emphasis. This needs a test before the docs claim it.
+- For evenly spaced azimuths (3 or more), `AᵀA` is diagonal and the same whatever the count, up to scale, so the result depends only on the altitudes. Uneven azimuth sets give directional emphasis. Confirmed by tests in Phase 2: 4, 8 and 32 azimuths give the same components and explained ratios to 1e-9.
 - The reduction holds only for unclipped shading. Clipped shading (negative illumination set to 0) or cast shadows are nonlinear, and the shortcut no longer equals the explicit PCA. See open decision 5.
 
 ### Bugs and limits in the current code (Dev, 272a1cb)
