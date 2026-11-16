@@ -5,7 +5,7 @@ import pytest
 
 from disco_tif.hillshade import shade
 from disco_tif.normals import unit_normals
-from disco_tif.pca import DEFAULT_ALTITUDES, DEFAULT_AZIMUTHS, REFERENCE_SUN, Moments, basis_from_moments, sun_matrix, transform
+from disco_tif.pca import DEFAULT_ALTITUDES, DEFAULT_AZIMUTHS, REFERENCE_SUN, Moments, basis_from_moments, stretch_limits, sun_matrix, to_uint8, transform
 
 
 def _normals(n=80, cell=10.0, seed=0):
@@ -120,3 +120,25 @@ def test_no_warning_on_anisotropic_terrain(caplog):
     with caplog.at_level("WARNING", logger="disco_tif.pca"):
         basis_from_moments(Moments.of(_hill_normals()))
     assert caplog.text == ""
+
+
+def test_to_uint8_range_clip_and_nodata():
+    out = to_uint8(np.array([-5.0, 0.0, 5.0, 10.0, 99.0, np.nan]), 0.0, 10.0)
+    np.testing.assert_array_equal(out, [1, 1, 128, 255, 255, 0])
+    assert out.dtype == np.uint8
+
+
+def test_to_uint8_broadcasts_per_component_and_rejects_bad_limits():
+    scores = np.array([[0.0, 10.0, -1.0], [1.0, 20.0, 1.0]])
+    out = to_uint8(scores, low=[0, 10, -1], high=[1, 20, 1])
+    np.testing.assert_array_equal(out, [[1, 1, 1], [255, 255, 255]])
+    with pytest.raises(ValueError):
+        to_uint8(scores, low=0, high=0)
+
+
+def test_stretch_limits_ignore_nan():
+    scores = np.stack([np.arange(101.0)] * 3, axis=-1)
+    scores[50] = np.nan
+    low, high = stretch_limits(scores, (1, 99))
+    np.testing.assert_allclose(low, np.nanpercentile(scores[:, 0], 1))
+    np.testing.assert_allclose(high, np.nanpercentile(scores[:, 0], 99))

@@ -206,3 +206,55 @@ def _warn_near_ties(eigenvalues):
                         "orientation is set by small terrain anisotropy and can change between "
                         "datasets; use one pooled or saved basis for consistent products",
                         j + 1, j + 2, eigenvalues[j], eigenvalues[j + 1])
+
+
+def stretch_limits(scores, percentiles=(1, 99)):
+    """Low and high stretch limits per component, from percentiles of the valid scores.
+
+    Parameters
+    ----------
+    scores : ndarray
+        Shape ``(..., 3)``; NaN cells are ignored.
+    percentiles : tuple of float
+        Lower and upper percentile [0-100] that map to the ends of the output range.
+
+    Returns
+    -------
+    low, high : ndarray
+        Shape ``(3,)`` each, in score units (dimensionless).
+    """
+    flat = np.asarray(scores, dtype=float).reshape(-1, 3)
+    low, high = np.nanpercentile(flat, percentiles, axis=0)
+    return low, high
+
+
+def to_uint8(values, low, high):
+    """Linear stretch to uint8 with 0 reserved for nodata.
+
+    Values at or below `low` map to 1, at or above `high` to 255; NaN maps to 0. This
+    is the disco-tif uint8 convention: write the result with ``nodata=0``.
+
+    Parameters
+    ----------
+    values : ndarray
+        Any shape; NaN marks nodata.
+    low, high : float or ndarray
+        Stretch limits, broadcast against `values` (one per component for scores of
+        shape ``(..., 3)``).
+
+    Returns
+    -------
+    ndarray
+        uint8, same shape as `values`.
+
+    Raises
+    ------
+    ValueError
+        If any `high` is not greater than the matching `low`.
+    """
+    low, high = np.asarray(low, dtype=float), np.asarray(high, dtype=float)
+    if np.any(high <= low):
+        raise ValueError(f"stretch high must exceed low, got low={low}, high={high}")
+    values = np.asarray(values, dtype=float)
+    scaled = 1 + np.round(254 * (np.clip(values, low, high) - low) / (high - low))
+    return np.where(np.isnan(values), 0, scaled).astype(np.uint8)
