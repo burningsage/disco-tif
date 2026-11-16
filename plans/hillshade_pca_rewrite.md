@@ -66,9 +66,9 @@ Consequences:
 ```
 disco_tif/
   __init__.py      # public API and __version__
-  normals.py       # gradient with real spacing, unit-normal terms, CRS and unit handling
+  normals.py       # unit normals from gradients with real spacing; dem_normals(path)
   pca.py           # moments, basis fit, transform, sign convention, stretch
-  io.py            # windowed reading with a halo, writers, basis JSON
+  io.py            # cell spacing from CRS, vertical units, reading to meters/NaN; later writers, basis JSON
   hillshade.py     # single hillshades from normals
   cli.py           # disco-tif hspca / fit-basis / apply-basis
   colorize.py      # paletted uint8 GeoTIFF + hist-norm / linear breaks, any mpl Colormap

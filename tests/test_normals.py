@@ -6,7 +6,8 @@ from affine import Affine
 from rasterio.crs import CRS
 
 from disco_tif.hillshade import shade
-from disco_tif.normals import EARTH_RADIUS_M, ground_spacing, unit_normals, z_to_meters
+from disco_tif.io import EARTH_RADIUS_M, ground_spacing, z_to_meters
+from disco_tif.normals import unit_normals
 
 UTM = CRS.from_epsg(32613)          # meters
 STATE_PLANE_FT = CRS.from_epsg(2232)  # US survey feet
