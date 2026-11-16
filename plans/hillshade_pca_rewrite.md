@@ -118,7 +118,7 @@ hillshade(src_path, out_path, *, azimuth=315, altitude=45, z_units=None) -> Path
 
 ### Sign convention
 
-- Flip PC1 so that it correlates positively with a reference hillshade (azimuth 315, altitude 45). Flip PC2 and PC3 so that their largest-magnitude loading is positive.
+- Flip PC1 so that it correlates positively with a reference hillshade (azimuth 315, altitude 45). Flip PC2 and PC3 so that the largest (east, north, up) entry of their weight vector in normal space is positive. The first draft said "largest loading over the hillshades", but with evenly spaced azimuths those loadings come in equal-magnitude symmetric pairs, so the choice would rest on rounding.
 - The rule goes in the docs and in the basis JSON, so the colors of a product are reproducible.
 - Near-tied eigenvalues. The first real run (a 30 m UTM DTM, 2026-11-16: 21.9 M pixels, 8 azimuths at 30 and 60 degrees) gave PC1 48%, PC2 45% and PC3 7%. With evenly spaced azimuths the two horizontal components are nearly degenerate, so how they are oriented in the horizontal plane is set by the terrain's anisotropy and can rotate between datasets. This is a likely cause of the "inconsistent between datasets" behavior that RVT reports. The basis JSON records the eigenvalue ratios, `fit_basis` logs a warning when PC1/PC2 are within 10%, and the docs explain that a pooled or saved basis is the way to get consistent products. A data-independent option, a fixed horizontal orientation such as north-south and east-west, is worth testing in Phase 2.
 - That run took 6 s and 4.4 GB peak memory in memory, which confirms that streaming (Phase 3) is needed for larger rasters.
