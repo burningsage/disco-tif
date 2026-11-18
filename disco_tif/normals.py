@@ -1,8 +1,9 @@
 """Unit surface normals of a DEM, with real cell spacing and units."""
 
 import numpy as np
+import rasterio
 
-from disco_tif.io import read_elevation
+from disco_tif.io import block_windows, read_elevation
 
 
 def unit_normals(z, dx_east, dy_north):
@@ -71,3 +72,32 @@ def dem_normals(path, *, z_units=None, window=None):
     """
     z, dx_east, dy_north, profile = read_elevation(path, z_units=z_units, window=window)
     return unit_normals(z, dx_east, dy_north), profile
+
+
+def normal_blocks(path, *, z_units=None, block_size=1024):
+    """Unit normals of a DEM file, block by block.
+
+    Each block is read with a one-cell halo, so the normals equal those of a whole
+    read of the raster, cell for cell; only `block_size` limits the memory used.
+
+    Parameters
+    ----------
+    path : str or path-like
+        Elevation raster readable by rasterio; band 1 is used.
+    z_units : {None, "m", "ft", "us_ft"}
+        Unit of the elevation values. See `dem_normals`.
+    block_size : int
+        Block side [cells].
+
+    Yields
+    ------
+    window : rasterio.windows.Window
+        The block's place in the raster. Blocks tile the raster exactly, row-major.
+    normals : ndarray
+        Shape ``(window.height, window.width, 3)``, (east, north, up); NaN where invalid.
+    """
+    with rasterio.open(path) as src:
+        height, width = src.height, src.width
+    for window, padded, inner in block_windows(height, width, block_size):
+        normals, _ = dem_normals(path, z_units=z_units, window=padded)
+        yield window, normals[inner]

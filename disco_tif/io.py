@@ -2,6 +2,7 @@
 
 import numpy as np
 import rasterio
+from rasterio.windows import Window
 
 EARTH_RADIUS_M = 6_371_008.8
 """Mean Earth radius [m], used to turn degrees into ground distance."""
@@ -85,6 +86,38 @@ def z_to_meters(crs, z_units=None):
         return Z_UNITS_TO_M[z_units]
     except KeyError:
         raise ValueError(f"z_units must be one of {sorted(Z_UNITS_TO_M)}, got {z_units!r}")
+
+
+def block_windows(height, width, block_size, halo=1):
+    """Split a raster into square blocks, each with a halo of neighboring cells.
+
+    Parameters
+    ----------
+    height, width : int
+        Raster size [cells].
+    block_size : int
+        Block side [cells]; blocks at the right and bottom edges are smaller.
+    halo : int
+        Extra cells read on each side of a block, clipped at the raster edge.
+
+    Yields
+    ------
+    block : rasterio.windows.Window
+        The cells this block is responsible for. Blocks tile the raster exactly.
+    padded : rasterio.windows.Window
+        `block` grown by `halo`, the window to read.
+    inner : tuple of slice
+        Row and column slices that crop an array read with `padded` back to `block`.
+    """
+    if block_size < 1:
+        raise ValueError(f"block_size must be at least 1, got {block_size}")
+    for row in range(0, height, block_size):
+        for col in range(0, width, block_size):
+            rows, cols = min(block_size, height - row), min(block_size, width - col)
+            r0, c0 = max(row - halo, 0), max(col - halo, 0)
+            r1, c1 = min(row + rows + halo, height), min(col + cols + halo, width)
+            yield (Window(col, row, cols, rows), Window(c0, r0, c1 - c0, r1 - r0),
+                   (slice(row - r0, row - r0 + rows), slice(col - c0, col - c0 + cols)))
 
 
 def read_elevation(path, *, z_units=None, window=None):
