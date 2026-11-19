@@ -55,6 +55,25 @@ def ground_spacing(transform, crs, height):
     return transform.a * m_per_unit, transform.e * m_per_unit
 
 
+def cell_size(path):
+    """Ground size of a raster's cells, in meters.
+
+    Parameters
+    ----------
+    path : str or path-like
+        Raster readable by rasterio, projected or geographic.
+
+    Returns
+    -------
+    tuple of float
+        ``(east, north)`` cell size [m], positive. For a geographic CRS the east size
+        is the mean over the rows, since it shrinks with cos(latitude).
+    """
+    with rasterio.open(path) as src:
+        dx_east, dy_north = ground_spacing(src.transform, src.crs, src.height)
+    return float(np.mean(np.abs(dx_east))), float(abs(dy_north))
+
+
 def z_to_meters(crs, z_units=None):
     """Meters per unit of the elevation values.
 

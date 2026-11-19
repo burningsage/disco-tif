@@ -128,6 +128,14 @@ class Basis:
         sums to 1 because the stack has rank 3.
     azimuths, altitudes : tuple of float
         Sun angles [degrees] the basis was fitted with.
+    stretch_percentiles : tuple of float or None
+        Percentiles [0-100] the stretch limits were taken at.
+    stretch_low, stretch_high : ndarray or None
+        Score at the low and high stretch percentile per component, shape ``(3,)``;
+        what `to_uint8` maps to 1 and 255.
+    inputs : tuple of dict
+        One entry per fitted raster: ``name`` (file name), ``cell_size_m``
+        (east, north [m]) and ``count`` (valid cells).
     """
 
     mean: np.ndarray
@@ -136,6 +144,10 @@ class Basis:
     explained: np.ndarray
     azimuths: tuple
     altitudes: tuple
+    stretch_percentiles: tuple = None
+    stretch_low: np.ndarray = None
+    stretch_high: np.ndarray = None
+    inputs: tuple = ()
 
 
 def basis_from_moments(moments, azimuths=DEFAULT_AZIMUTHS, altitudes=DEFAULT_ALTITUDES):
