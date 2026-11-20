@@ -64,3 +64,13 @@ def test_sample_keeps_about_the_requested_fraction():
 def test_sample_with_no_valid_cells_raises(dem_path):
     with pytest.raises(ValueError, match="sample_size"):
         fit_basis(dem_path, sample_size=0)
+
+
+def test_mixed_resolution_is_refused_unless_allowed(tmp_path):
+    fine = write_tif(tmp_path / "fine.tif", _dem(), cell=1.0, nodata=-9999)
+    near = write_tif(tmp_path / "near.tif", _dem(seed=1), cell=1.5, nodata=-9999)
+    coarse = write_tif(tmp_path / "coarse.tif", _dem(seed=2), cell=5.0, nodata=-9999)
+    fit_basis([fine, near])
+    with pytest.raises(ValueError, match="allow_mixed_resolution"):
+        fit_basis([fine, coarse])
+    assert len(fit_basis([fine, coarse], allow_mixed_resolution=True).inputs) == 2

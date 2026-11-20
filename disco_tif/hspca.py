@@ -19,7 +19,8 @@ from disco_tif.pca import DEFAULT_ALTITUDES, DEFAULT_AZIMUTHS, Moments, basis_fr
 
 
 def fit_basis(src_paths, *, azimuths=DEFAULT_AZIMUTHS, altitudes=DEFAULT_ALTITUDES, z_units=None,
-              block_size=1024, sample_size=1_000_000, stretch=(1, 99), seed=0):
+              block_size=1024, sample_size=1_000_000, stretch=(1, 99), seed=0,
+              allow_mixed_resolution=False):
     """Fit one hillshade PCA basis to one or more DEMs, streaming.
 
     The moments of all inputs are added, so the basis is exactly that of the
@@ -46,6 +47,10 @@ def fit_basis(src_paths, *, azimuths=DEFAULT_AZIMUTHS, altitudes=DEFAULT_ALTITUD
         Low and high percentile [0-100] of the scores that map to 1 and 255.
     seed : int
         Seed of the sample.
+    allow_mixed_resolution : bool
+        Slope statistics change with cell size, so by default inputs whose east or
+        north cell sizes differ by more than `MAX_CELL_SIZE_RATIO` are refused. True
+        pools them anyway.
 
     Returns
     -------
@@ -55,9 +60,13 @@ def fit_basis(src_paths, *, azimuths=DEFAULT_AZIMUTHS, altitudes=DEFAULT_ALTITUD
     Raises
     ------
     ValueError
-        If the inputs hold fewer than two valid cells, or the sample holds none.
+        If the cell sizes are mixed and not allowed, the inputs hold fewer than two
+        valid cells, or the sample holds none.
     """
     paths = [src_paths] if isinstance(src_paths, (str, os.PathLike)) else list(src_paths)
+    cells = [cell_size(path) for path in paths]
+    if not allow_mixed_resolution:
+        _check_resolution(paths, cells)
     shapes = []
     for path in paths:
         with rasterio.open(path) as src:
@@ -70,7 +79,7 @@ def fit_basis(src_paths, *, azimuths=DEFAULT_AZIMUTHS, altitudes=DEFAULT_ALTITUD
             own += Moments.of(normals)
             sample.append(normals[_sampled(window, width, keep, seed, i)])
         moments += own
-        inputs.append({"name": Path(path).name, "cell_size_m": cell_size(path), "count": own.count})
+        inputs.append({"name": Path(path).name, "cell_size_m": cells[i], "count": own.count})
     basis = basis_from_moments(moments, azimuths, altitudes)
     sample = np.concatenate(sample).reshape(-1, 3)
     sample = sample[~np.isnan(sample).any(axis=1)]
@@ -104,6 +113,20 @@ def score_blocks(path, basis, *, z_units=None, block_size=1024):
     """
     for window, normals in normal_blocks(path, z_units=z_units, block_size=block_size):
         yield window, transform(normals, basis)
+
+
+MAX_CELL_SIZE_RATIO = 2.0
+"""Largest ratio of input cell sizes `fit_basis` pools without being told to."""
+
+
+def _check_resolution(paths, cells):
+    """Raise if any east or north cell size differs by more than `MAX_CELL_SIZE_RATIO`."""
+    sizes = np.array(cells)
+    ratio = (sizes.max(axis=0) / sizes.min(axis=0)).max()
+    if ratio > MAX_CELL_SIZE_RATIO:
+        listing = ", ".join(f"{Path(p).name}: {e:.3g} x {n:.3g} m" for p, (e, n) in zip(paths, cells))
+        raise ValueError(f"input cell sizes differ by {ratio:.3g}x ({listing}); slope statistics "
+                         "depend on resolution, so pass allow_mixed_resolution=True to pool them anyway")
 
 
 _GOLDEN = 0x9E3779B97F4A7C15
