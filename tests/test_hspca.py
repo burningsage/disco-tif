@@ -74,3 +74,32 @@ def test_mixed_resolution_is_refused_unless_allowed(tmp_path):
     with pytest.raises(ValueError, match="allow_mixed_resolution"):
         fit_basis([fine, coarse])
     assert len(fit_basis([fine, coarse], allow_mixed_resolution=True).inputs) == 2
+
+
+def test_basis_json_round_trips(dem_path, tmp_path):
+    import json
+
+    from disco_tif import __version__
+    from disco_tif.pca import Basis
+
+    basis = fit_basis(dem_path, block_size=64)
+    path = basis.save(tmp_path / "basis.json")
+    doc = json.loads(path.read_text())
+    assert doc["disco_tif_version"] == __version__ and "component 1" in doc["sign_convention"]
+    assert doc["eigenvalue_ratios"][0] == basis.eigenvalues[1] / basis.eigenvalues[0]
+    loaded = Basis.load(path)
+    for name in ("mean", "weights", "eigenvalues", "explained", "stretch_low", "stretch_high"):
+        np.testing.assert_array_equal(getattr(loaded, name), getattr(basis, name))
+    for name in ("azimuths", "altitudes", "stretch_percentiles", "inputs"):
+        assert getattr(loaded, name) == getattr(basis, name)
+    (_, a), (_, b) = next(score_blocks(dem_path, basis)), next(score_blocks(dem_path, loaded))
+    np.testing.assert_array_equal(a, b)
+
+
+def test_basis_load_rejects_other_json(tmp_path):
+    from disco_tif.pca import Basis
+
+    path = tmp_path / "other.json"
+    path.write_text('{"format": "something else"}')
+    with pytest.raises(ValueError, match="not a disco-tif basis"):
+        Basis.load(path)

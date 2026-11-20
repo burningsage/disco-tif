@@ -1,3 +1,3 @@
 """Principal-component hillshades for digital elevation models."""
 
-__version__ = "0.1.0.dev0"
+from disco_tif._version import __version__

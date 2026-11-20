@@ -12,11 +12,14 @@ like an ordinary hillshade). Components 2 and 3 are flipped so that the largest
 (east, north, up) entry of their weight vector is positive.
 """
 
+import json
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 
+from disco_tif._version import __version__
 from disco_tif.hillshade import sun_vector
 
 log = logging.getLogger(__name__)
@@ -32,6 +35,14 @@ REFERENCE_SUN = (315, 45)
 
 NEAR_TIE_RATIO = 0.9
 """Adjacent eigenvalues closer than this ratio trigger a warning (within 10 %)."""
+
+SIGN_CONVENTION = (f"component 1 correlates positively with the hillshade at azimuth {REFERENCE_SUN[0]}, "
+                   f"altitude {REFERENCE_SUN[1]}; "
+                   "components 2 and 3 have their largest (east, north, up) weight positive")
+"""The sign rule, as written into every basis JSON."""
+
+BASIS_FORMAT = "disco-tif hillshade PCA basis"
+BASIS_FORMAT_VERSION = 1
 
 
 @dataclass
@@ -148,6 +159,68 @@ class Basis:
     stretch_low: np.ndarray = None
     stretch_high: np.ndarray = None
     inputs: tuple = ()
+
+    def save(self, path):
+        """Write the basis to a JSON file.
+
+        Besides the fields, the file records the disco-tif version, the sign
+        convention and the eigenvalue ratios, for whoever reads it later. ``weights``
+        is stored with rows (east, north, up) and one column per component.
+
+        Parameters
+        ----------
+        path : str or path-like
+            Output file, overwritten if it exists.
+
+        Returns
+        -------
+        pathlib.Path
+        """
+        e = self.eigenvalues
+        doc = {"format": BASIS_FORMAT, "format_version": BASIS_FORMAT_VERSION,
+               "disco_tif_version": __version__, "sign_convention": SIGN_CONVENTION,
+               "azimuths": list(self.azimuths), "altitudes": list(self.altitudes),
+               "mean": self.mean.tolist(), "weights": self.weights.tolist(),
+               "eigenvalues": e.tolist(), "explained": self.explained.tolist(),
+               "eigenvalue_ratios": [e[1] / e[0], e[2] / e[1]],
+               "stretch_percentiles": None if self.stretch_percentiles is None else list(self.stretch_percentiles),
+               "stretch_low": None if self.stretch_low is None else self.stretch_low.tolist(),
+               "stretch_high": None if self.stretch_high is None else self.stretch_high.tolist(),
+               "inputs": [dict(i, cell_size_m=list(i["cell_size_m"])) for i in self.inputs]}
+        path = Path(path)
+        path.write_text(json.dumps(doc, indent=2) + "\n")
+        return path
+
+    @classmethod
+    def load(cls, path):
+        """Read a basis written by `save`.
+
+        Parameters
+        ----------
+        path : str or path-like
+
+        Returns
+        -------
+        Basis
+
+        Raises
+        ------
+        ValueError
+            If the file is not a disco-tif basis of a known format version.
+        """
+        doc = json.loads(Path(path).read_text())
+        if doc.get("format") != BASIS_FORMAT or doc.get("format_version") != BASIS_FORMAT_VERSION:
+            raise ValueError(f"{path} is not a disco-tif basis of format version {BASIS_FORMAT_VERSION}")
+
+        def array(key):
+            return None if doc[key] is None else np.array(doc[key], dtype=float)
+
+        return cls(mean=array("mean"), weights=array("weights"), eigenvalues=array("eigenvalues"),
+                   explained=array("explained"), azimuths=tuple(doc["azimuths"]),
+                   altitudes=tuple(doc["altitudes"]),
+                   stretch_percentiles=None if doc["stretch_percentiles"] is None else tuple(doc["stretch_percentiles"]),
+                   stretch_low=array("stretch_low"), stretch_high=array("stretch_high"),
+                   inputs=tuple(dict(i, cell_size_m=tuple(i["cell_size_m"])) for i in doc["inputs"]))
 
 
 def basis_from_moments(moments, azimuths=DEFAULT_AZIMUTHS, altitudes=DEFAULT_ALTITUDES):

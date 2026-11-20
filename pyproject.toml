@@ -32,7 +32,7 @@ Issues = "https://github.com/burningsage/disco-tif/issues"
 Changelog = "https://github.com/burningsage/disco-tif/blob/master/HISTORY.md"
 
 [tool.setuptools.dynamic]
-version = { attr = "disco_tif.__version__" }
+version = { attr = "disco_tif._version.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["disco_tif*"]
