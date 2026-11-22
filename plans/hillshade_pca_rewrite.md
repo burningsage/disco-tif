@@ -113,7 +113,7 @@ hillshade(src_path, out_path, *, azimuth=315, altitude=45, z_units=None) -> Path
 
 ### Multi-raster and tile consistency
 
-- `fit_basis` takes many rasters and simply adds their sums together. The result is exactly the basis of the mosaic, without building the mosaic.
+- `fit_basis` takes many rasters and simply adds their sums together. The result is exactly the basis of all their cells taken together, without building the mosaic. Tiles cut from one DEM get one-sided gradients on their outer row and column, so the two cells either side of a seam differ from a whole read (by up to 0.4 in score units on the synthetic test DEM); the basis itself barely moves. Seamless products of a tiled DEM come from running on a mosaic of the tiles, such as a GDAL VRT (confirmed in Phase 3 tests, 2026-11-22).
 - Slope statistics change with resolution, so mixing 1 m and 30 m tiles in one basis is a real choice. `fit_basis` raises an error when the cell sizes of its inputs differ by more than 2x, unless `allow_mixed_resolution=True` is passed.
 
 ### Sign convention

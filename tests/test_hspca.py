@@ -103,3 +103,44 @@ def test_basis_load_rejects_other_json(tmp_path):
     path.write_text('{"format": "something else"}')
     with pytest.raises(ValueError, match="not a disco-tif basis"):
         Basis.load(path)
+
+
+def _four_tiles(tmp_path, z, cell=10.0, split=(70, 60)):
+    """Write `z` as four edge-to-edge tiles; return their paths and row/column slices."""
+    r, c = split
+    tiles = []
+    for i, (rows, cols) in enumerate([(slice(0, r), slice(0, c)), (slice(0, r), slice(c, None)),
+                                      (slice(r, None), slice(0, c)), (slice(r, None), slice(c, None))]):
+        origin = (500_000 + cols.start * cell, 4_000_000 - rows.start * cell)
+        path = write_tif(tmp_path / f"tile{i}.tif", np.ascontiguousarray(z[rows, cols]), cell=cell,
+                         nodata=-9999, origin=origin)
+        tiles.append((path, rows, cols))
+    return tiles
+
+
+def test_four_tiles_with_a_pooled_basis_match_the_whole_raster(tmp_path, dem_path):
+    """A pooled basis gives the whole raster's pixels everywhere but at the tile seams.
+
+    The pooled basis is exactly that of the tiles' normals taken together. A tile edge
+    has no neighbor to difference with, so its outer row or column gets a one-sided
+    gradient: the two cells either side of each seam differ from a whole read.
+    """
+    z = _dem()
+    tiles = _four_tiles(tmp_path, z)
+    pooled = fit_basis([path for path, *_ in tiles], block_size=32)
+    together = sum((Moments.of(dem_normals(path)[0]) for path, *_ in tiles), Moments())
+    np.testing.assert_allclose(pooled.weights, basis_from_moments(together).weights, rtol=1e-12, atol=1e-12)
+
+    normals, _ = dem_normals(dem_path)
+    whole = transform(normals, pooled)
+    pieced = np.full(whole.shape, -5.0)
+    for path, rows, cols in tiles:
+        for window, block in score_blocks(path, pooled, block_size=32):
+            pieced[rows, cols][window.toslices()] = block
+    seam = np.zeros(z.shape, bool)
+    seam[69:71], seam[:, 59:61] = True, True
+    same = np.isclose(pieced, whole, rtol=0, atol=1e-12, equal_nan=True).all(axis=-1)
+    assert same[~seam].all()
+    assert not same[seam].any()
+    whole_basis = basis_from_moments(Moments.of(normals))
+    np.testing.assert_allclose(pooled.weights, whole_basis.weights, atol=1e-3 * np.abs(whole_basis.weights).max())

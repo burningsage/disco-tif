@@ -23,8 +23,13 @@ def fit_basis(src_paths, *, azimuths=DEFAULT_AZIMUTHS, altitudes=DEFAULT_ALTITUD
               allow_mixed_resolution=False):
     """Fit one hillshade PCA basis to one or more DEMs, streaming.
 
-    The moments of all inputs are added, so the basis is exactly that of the
-    mosaic of the inputs, without building the mosaic.
+    The moments of all inputs are added, so the basis is exactly that of all their
+    cells taken together, without building a mosaic. One caveat for tiles cut from
+    one DEM: a tile's outer row and column have no neighbor to difference with, so
+    they get one-sided gradients, and the cells either side of a seam differ from a
+    whole read (the basis barely changes; the pixels on the seam do). For seamless
+    products, run on a mosaic of the tiles instead, such as a GDAL VRT, which is read
+    block by block like any other raster.
 
     Parameters
     ----------
