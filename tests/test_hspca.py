@@ -7,22 +7,12 @@ from rasterio.windows import Window
 from disco_tif.hspca import _sampled, fit_basis, score_blocks
 from disco_tif.normals import dem_normals
 from disco_tif.pca import Moments, basis_from_moments, stretch_limits, to_uint8, transform
-from rasters import write_tif
-
-
-def _dem(rows=150, cols=130, cell=10.0, seed=0):
-    """Anisotropic synthetic DEM [m] with a nodata hole and a little noise."""
-    rng = np.random.default_rng(seed)
-    e, nn = np.meshgrid(np.arange(cols) * cell, np.arange(rows)[::-1] * cell)
-    z = (40 * np.sin(e / 90) * np.cos(nn / 140) + 25 * np.exp(-((e - 500) ** 2 + (nn - 300) ** 2) / 2e4)
-         + 0.1 * e + rng.normal(0, 0.5, e.shape)).astype(np.float32)
-    z[40:44, 70:75] = -9999
-    return z
+from rasters import synthetic_dem, write_tif
 
 
 @pytest.fixture
 def dem_path(tmp_path):
-    return write_tif(tmp_path / "dem.tif", _dem(), nodata=-9999)
+    return write_tif(tmp_path / "dem.tif", synthetic_dem(), nodata=-9999)
 
 
 def test_streaming_equals_in_memory(dem_path):
@@ -67,9 +57,9 @@ def test_sample_with_no_valid_cells_raises(dem_path):
 
 
 def test_mixed_resolution_is_refused_unless_allowed(tmp_path):
-    fine = write_tif(tmp_path / "fine.tif", _dem(), cell=1.0, nodata=-9999)
-    near = write_tif(tmp_path / "near.tif", _dem(seed=1), cell=1.5, nodata=-9999)
-    coarse = write_tif(tmp_path / "coarse.tif", _dem(seed=2), cell=5.0, nodata=-9999)
+    fine = write_tif(tmp_path / "fine.tif", synthetic_dem(), cell=1.0, nodata=-9999)
+    near = write_tif(tmp_path / "near.tif", synthetic_dem(seed=1), cell=1.5, nodata=-9999)
+    coarse = write_tif(tmp_path / "coarse.tif", synthetic_dem(seed=2), cell=5.0, nodata=-9999)
     fit_basis([fine, near])
     with pytest.raises(ValueError, match="allow_mixed_resolution"):
         fit_basis([fine, coarse])
@@ -125,7 +115,7 @@ def test_four_tiles_with_a_pooled_basis_match_the_whole_raster(tmp_path, dem_pat
     has no neighbor to difference with, so its outer row or column gets a one-sided
     gradient: the two cells either side of each seam differ from a whole read.
     """
-    z = _dem()
+    z = synthetic_dem()
     tiles = _four_tiles(tmp_path, z)
     pooled = fit_basis([path for path, *_ in tiles], block_size=32)
     together = sum((Moments.of(dem_normals(path)[0]) for path, *_ in tiles), Moments())

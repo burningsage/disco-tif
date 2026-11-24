@@ -22,6 +22,9 @@ classifiers = [
     "Topic :: Scientific/Engineering :: GIS",
 ]
 
+[project.scripts]
+disco-tif = "disco_tif.cli:main"
+
 [project.optional-dependencies]
 plot = ["matplotlib>=3.7"]
 test = ["pytest>=7", "scikit-learn>=1.3"]
