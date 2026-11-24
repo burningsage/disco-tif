@@ -1,21 +1,30 @@
-"""Hillshade PCA of raster files, streamed block by block.
+"""Hillshade PCA and single hillshades of raster files, streamed block by block.
 
 Pass 1 (`fit_basis`) adds up the moments of the unit normals of every block of
 every input and keeps a seeded sample of cells for the stretch. Pass 2
-(`score_blocks`) applies the basis block by block. Memory is set by
+(`score_blocks`, `apply_basis`) applies the basis block by block. Memory is set by
 ``block_size``, not by the size of the rasters.
 """
 
+import logging
 import os
+from contextlib import ExitStack
 from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import rasterio
 
-from disco_tif.io import cell_size
+from disco_tif.io import cell_size, create_geotiff
 from disco_tif.normals import normal_blocks
-from disco_tif.pca import DEFAULT_ALTITUDES, DEFAULT_AZIMUTHS, Moments, basis_from_moments, stretch_limits, transform
+from disco_tif.pca import (DEFAULT_ALTITUDES, DEFAULT_AZIMUTHS, Moments, basis_from_moments, stretch_limits,
+                           to_uint8, transform)
+from disco_tif.shading import shade
+
+log = logging.getLogger(__name__)
+
+OUTPUTS = ("components", "rgb")
+"""Products `apply_basis` can write: one file per component, and an RGB composite."""
 
 
 def fit_basis(src_paths, *, azimuths=DEFAULT_AZIMUTHS, altitudes=DEFAULT_ALTITUDES, z_units=None,
@@ -91,6 +100,8 @@ def fit_basis(src_paths, *, azimuths=DEFAULT_AZIMUTHS, altitudes=DEFAULT_ALTITUD
     if len(sample) == 0:
         raise ValueError("the stretch sample holds no valid cells; increase sample_size")
     low, high = stretch_limits(transform(sample, basis), stretch)
+    log.info("fitted a basis to %d raster(s), %d valid cells; explained %s", len(paths), moments.count,
+             " / ".join(f"{100 * x:.1f} %" for x in basis.explained))
     return replace(basis, stretch_percentiles=tuple(float(p) for p in stretch),
                    stretch_low=low, stretch_high=high, inputs=tuple(inputs))
 
@@ -132,6 +143,145 @@ def _check_resolution(paths, cells):
         listing = ", ".join(f"{Path(p).name}: {e:.3g} x {n:.3g} m" for p, (e, n) in zip(paths, cells))
         raise ValueError(f"input cell sizes differ by {ratio:.3g}x ({listing}); slope statistics "
                          "depend on resolution, so pass allow_mixed_resolution=True to pool them anyway")
+
+
+def apply_basis(src_path, basis, out_dir, *, outputs=OUTPUTS, dtype="uint8", z_units=None, block_size=1024):
+    """Write the hillshade PCA products of a DEM under a basis.
+
+    Files are named after the DEM, ``<stem>_hspca_c1.tif`` to ``_c3.tif``,
+    ``<stem>_hspca_rgb.tif`` and ``<stem>_hspca_basis.json``, and reruns overwrite
+    them. The basis JSON is always written, so each product records how it was made.
+
+    Parameters
+    ----------
+    src_path : str or path-like
+        Elevation raster readable by rasterio; band 1 is used.
+    basis : Basis
+        A basis from `fit_basis`, fitted to this DEM or to others (for products
+        that match an earlier delivery).
+    out_dir : str or path-like
+        Output folder, created if missing.
+    outputs : sequence of {"components", "rgb"}
+        Products to write. The RGB composite holds components 1, 2 and 3 as red,
+        green and blue, always as uint8.
+    dtype : {"uint8", "float32"}
+        Component data type. uint8 is the basis's stretch to 1-255 with 0 for
+        nodata; float32 is the raw score (dimensionless) with NaN for nodata.
+    z_units : {None, "m", "ft", "us_ft"}
+        Unit of the elevation values. See `fit_basis`.
+    block_size : int
+        Block side [cells].
+
+    Returns
+    -------
+    dict of str to pathlib.Path
+        Keys ``"c1"``, ``"c2"``, ``"c3"``, ``"rgb"`` for the products written, and
+        ``"basis"``.
+
+    Raises
+    ------
+    ValueError
+        For an unknown output or dtype, or a uint8 product from a basis without
+        stretch limits.
+    """
+    if set(outputs) - set(OUTPUTS):
+        raise ValueError(f"outputs must be drawn from {OUTPUTS}, got {tuple(outputs)}")
+    if dtype not in ("uint8", "float32"):
+        raise ValueError(f"dtype must be 'uint8' or 'float32', got {dtype!r}")
+    stretched = "rgb" in outputs or ("components" in outputs and dtype == "uint8")
+    if stretched and basis.stretch_low is None:
+        raise ValueError("the basis has no stretch limits; fit it with fit_basis, or write float32 components")
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stem = Path(src_path).stem
+    paths = {}
+    with ExitStack() as stack:
+        components = []
+        if "components" in outputs:
+            for j in (1, 2, 3):
+                paths[f"c{j}"] = out_dir / f"{stem}_hspca_c{j}.tif"
+                components.append(stack.enter_context(create_geotiff(
+                    paths[f"c{j}"], src_path, dtype=dtype, nodata=0 if dtype == "uint8" else np.nan)))
+        rgb = None
+        if "rgb" in outputs:
+            paths["rgb"] = out_dir / f"{stem}_hspca_rgb.tif"
+            rgb = stack.enter_context(create_geotiff(paths["rgb"], src_path, count=3, photometric="RGB"))
+        for window, scores in score_blocks(src_path, basis, z_units=z_units, block_size=block_size):
+            u8 = to_uint8(scores, basis.stretch_low, basis.stretch_high) if stretched else None
+            for j, dst in enumerate(components):
+                band = u8[..., j] if dtype == "uint8" else scores[..., j].astype(np.float32)
+                dst.write(band, 1, window=window)
+            if rgb is not None:
+                rgb.write(np.moveaxis(u8, -1, 0), window=window)
+    paths["basis"] = basis.save(out_dir / f"{stem}_hspca_basis.json")
+    log.info("wrote %s", ", ".join(p.name for p in paths.values()))
+    return paths
+
+
+def hillshade_pca(src_path, out_dir, *, azimuths=DEFAULT_AZIMUTHS, altitudes=DEFAULT_ALTITUDES, z_units=None,
+                  block_size=1024, sample_size=1_000_000, stretch=(1, 99), seed=0, outputs=OUTPUTS,
+                  dtype="uint8"):
+    """Fit a hillshade PCA to one DEM and write its products: `fit_basis`, then `apply_basis`.
+
+    To reuse a basis across rasters, fit it once with `fit_basis` (or load it with
+    `Basis.load`) and call `apply_basis` for each raster instead.
+
+    Parameters
+    ----------
+    src_path : str or path-like
+        Elevation raster readable by rasterio; band 1 is used.
+    out_dir : str or path-like
+        Output folder, created if missing.
+    azimuths, altitudes, z_units, block_size, sample_size, stretch, seed
+        As for `fit_basis`.
+    outputs, dtype
+        As for `apply_basis`.
+
+    Returns
+    -------
+    dict of str to pathlib.Path
+        As for `apply_basis`.
+    """
+    basis = fit_basis(src_path, azimuths=azimuths, altitudes=altitudes, z_units=z_units, block_size=block_size,
+                      sample_size=sample_size, stretch=stretch, seed=seed)
+    return apply_basis(src_path, basis, out_dir, outputs=outputs, dtype=dtype, z_units=z_units,
+                       block_size=block_size)
+
+
+def hillshade(src_path, out_path, *, azimuth=315, altitude=45, z_units=None, block_size=1024, dtype="uint8"):
+    """Write a single hillshade of a DEM, using its real cell spacing and units.
+
+    Parameters
+    ----------
+    src_path : str or path-like
+        Elevation raster readable by rasterio; band 1 is used.
+    out_path : str or path-like
+        Output GeoTIFF, overwritten if it exists.
+    azimuth : float
+        Sun azimuth [degrees clockwise from north].
+    altitude : float
+        Sun altitude [degrees above the horizon].
+    z_units : {None, "m", "ft", "us_ft"}
+        Unit of the elevation values. See `fit_basis`.
+    block_size : int
+        Block side [cells].
+    dtype : {"uint8", "float32"}
+        uint8 follows gdaldem: slopes facing away from the sun are 1, full sun is
+        255, nodata is 0. float32 is the unclipped shading, cos of the angle between
+        normal and sun (-1 to 1, dimensionless), with NaN for nodata.
+
+    Returns
+    -------
+    pathlib.Path
+    """
+    if dtype not in ("uint8", "float32"):
+        raise ValueError(f"dtype must be 'uint8' or 'float32', got {dtype!r}")
+    with create_geotiff(out_path, src_path, dtype=dtype, nodata=0 if dtype == "uint8" else np.nan) as dst:
+        for window, normals in normal_blocks(src_path, z_units=z_units, block_size=block_size):
+            shading = shade(normals, azimuth, altitude)
+            dst.write(to_uint8(shading, 0, 1) if dtype == "uint8" else shading.astype(np.float32), 1, window=window)
+    log.info("wrote %s", Path(out_path).name)
+    return Path(out_path)
 
 
 _GOLDEN = 0x9E3779B97F4A7C15

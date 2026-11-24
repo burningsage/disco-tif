@@ -178,3 +178,35 @@ def read_elevation(path, *, z_units=None, window=None):
     dx_east, dy_north = ground_spacing(transform, crs, height=z.shape[0])
     profile.update(width=z.shape[1], height=z.shape[0], transform=transform)
     return z, dx_east, dy_north, profile
+
+
+def create_geotiff(path, like, *, count=1, dtype="uint8", nodata=0, **creation):
+    """Open a tiled, deflate-compressed GeoTIFF for writing, on the grid of another raster.
+
+    Parameters
+    ----------
+    path : str or path-like
+        Output file, overwritten if it exists.
+    like : str or path-like
+        Raster whose size, CRS and geotransform the output takes.
+    count : int
+        Number of bands.
+    dtype : {"uint8", "float32"}
+        Band data type.
+    nodata : float
+        Nodata value: 0 for the disco-tif uint8 convention, NaN for float32.
+    **creation
+        Extra creation options, such as ``photometric="RGB"``.
+
+    Returns
+    -------
+    rasterio.io.DatasetWriter
+        Open for writing; use it as a context manager.
+    """
+    with rasterio.open(like) as src:
+        width, height, crs, transform = src.width, src.height, src.crs, src.transform
+    predictor = 2 if np.dtype(dtype).kind in "iu" else 3
+    return rasterio.open(path, "w", driver="GTiff", width=width, height=height, count=count,
+                         dtype=dtype, crs=crs, transform=transform, nodata=nodata, tiled=True,
+                         blockxsize=256, blockysize=256, compress="deflate", predictor=predictor,
+                         BIGTIFF="IF_SAFER", **creation)

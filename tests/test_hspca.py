@@ -6,7 +6,7 @@ from rasterio.windows import Window
 
 from disco_tif.hspca import _sampled, fit_basis, score_blocks
 from disco_tif.normals import dem_normals
-from disco_tif.pca import Moments, basis_from_moments, stretch_limits, transform
+from disco_tif.pca import Moments, basis_from_moments, stretch_limits, to_uint8, transform
 from rasters import write_tif
 
 
@@ -144,3 +144,82 @@ def test_four_tiles_with_a_pooled_basis_match_the_whole_raster(tmp_path, dem_pat
     assert not same[seam].any()
     whole_basis = basis_from_moments(Moments.of(normals))
     np.testing.assert_allclose(pooled.weights, whole_basis.weights, atol=1e-3 * np.abs(whole_basis.weights).max())
+
+
+def test_apply_basis_writes_stretched_components_rgb_and_basis(dem_path, tmp_path):
+    import rasterio
+
+    from disco_tif.hspca import apply_basis
+
+    basis = fit_basis(dem_path)
+    paths = apply_basis(dem_path, basis, tmp_path / "out", block_size=64)
+    assert {k: p.name for k, p in paths.items()} == {
+        "c1": "dem_hspca_c1.tif", "c2": "dem_hspca_c2.tif", "c3": "dem_hspca_c3.tif",
+        "rgb": "dem_hspca_rgb.tif", "basis": "dem_hspca_basis.json"}
+    normals, _ = dem_normals(dem_path)
+    expected = to_uint8(transform(normals, basis), basis.stretch_low, basis.stretch_high)
+    with rasterio.open(dem_path) as src:
+        crs, grid = src.crs, src.transform
+    for j in (1, 2, 3):
+        with rasterio.open(paths[f"c{j}"]) as dst:
+            assert (dst.dtypes[0], dst.nodata, dst.crs, dst.transform) == ("uint8", 0, crs, grid)
+            assert dst.profile["tiled"] and dst.compression.name == "deflate"
+            np.testing.assert_array_equal(dst.read(1), expected[..., j - 1])
+    with rasterio.open(paths["rgb"]) as dst:
+        np.testing.assert_array_equal(np.moveaxis(dst.read(), 0, -1), expected)
+    assert (expected[41, 72] == 0).all()  # the nodata hole stays nodata
+    np.testing.assert_array_equal(type(basis).load(paths["basis"]).weights, basis.weights)
+
+
+def test_apply_basis_float32_components_are_raw_scores(dem_path, tmp_path):
+    import rasterio
+
+    from disco_tif.hspca import apply_basis
+
+    basis = fit_basis(dem_path)
+    paths = apply_basis(dem_path, basis, tmp_path, outputs=("components",), dtype="float32")
+    assert "rgb" not in paths
+    with rasterio.open(paths["c2"]) as dst:
+        assert dst.dtypes[0] == "float32" and np.isnan(dst.nodata)
+        np.testing.assert_allclose(dst.read(1), transform(dem_normals(dem_path)[0], basis)[..., 1], rtol=1e-6)
+
+
+def test_apply_basis_rejects_bad_requests(dem_path, tmp_path):
+    from disco_tif.hspca import apply_basis
+
+    basis = fit_basis(dem_path)
+    with pytest.raises(ValueError, match="outputs"):
+        apply_basis(dem_path, basis, tmp_path, outputs=("components", "png"))
+    with pytest.raises(ValueError, match="dtype"):
+        apply_basis(dem_path, basis, tmp_path, dtype="int16")
+    with pytest.raises(ValueError, match="stretch"):
+        apply_basis(dem_path, basis_from_moments(Moments.of(dem_normals(dem_path)[0])), tmp_path)
+
+
+def test_hillshade_pca_is_fit_then_apply_and_reruns_identically(dem_path, tmp_path):
+    import rasterio
+
+    from disco_tif.hspca import apply_basis, hillshade_pca
+
+    first = hillshade_pca(dem_path, tmp_path / "a")
+    with rasterio.open(first["rgb"]) as dst:
+        a = dst.read()
+    again = hillshade_pca(dem_path, tmp_path / "a")
+    by_hand = apply_basis(dem_path, fit_basis(dem_path), tmp_path / "b")
+    for paths in (again, by_hand):
+        with rasterio.open(paths["rgb"]) as dst:
+            np.testing.assert_array_equal(dst.read(), a)
+
+
+def test_hillshade_follows_gdaldem_uint8_and_raw_float32(dem_path, tmp_path):
+    import rasterio
+
+    from disco_tif.hspca import hillshade
+    from disco_tif.shading import shade
+
+    shading = shade(dem_normals(dem_path)[0], 300, 40)
+    with rasterio.open(hillshade(dem_path, tmp_path / "hs.tif", azimuth=300, altitude=40, block_size=64)) as dst:
+        np.testing.assert_array_equal(dst.read(1), to_uint8(shading, 0, 1))
+        assert dst.nodata == 0
+    with rasterio.open(hillshade(dem_path, tmp_path / "hs32.tif", azimuth=300, altitude=40, dtype="float32")) as dst:
+        np.testing.assert_allclose(dst.read(1), shading, rtol=1e-6)
