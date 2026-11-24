@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 
 from disco_tif._version import __version__
-from disco_tif.hillshade import sun_vector
+from disco_tif.shading import sun_vector
 
 log = logging.getLogger(__name__)
 

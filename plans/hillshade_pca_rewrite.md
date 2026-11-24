@@ -69,7 +69,8 @@ disco_tif/
   normals.py       # unit normals from gradients with real spacing; dem_normals(path)
   pca.py           # moments, basis fit, transform, sign convention, stretch
   io.py            # cell spacing from CRS, vertical units, reading to meters/NaN; later writers, basis JSON
-  hillshade.py     # single hillshades from normals
+  shading.py       # sun vectors and shading of normals (hillshade.py until Phase 4, renamed so the hillshade() function does not shadow it)
+  hspca.py         # streamed fit_basis, apply_basis, hillshade_pca, hillshade on files
   cli.py           # disco-tif hspca / fit-basis / apply-basis
   colorize.py      # paletted uint8 GeoTIFF + hist-norm / linear breaks, any mpl Colormap
 tests/

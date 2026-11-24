@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from disco_tif.hillshade import shade, sun_vector
+from disco_tif.shading import shade, sun_vector
 
 
 @pytest.mark.parametrize(

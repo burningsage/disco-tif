@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from disco_tif.hillshade import shade
+from disco_tif.shading import shade
 from disco_tif.normals import unit_normals
 from disco_tif.pca import DEFAULT_ALTITUDES, DEFAULT_AZIMUTHS, REFERENCE_SUN, Moments, basis_from_moments, stretch_limits, sun_matrix, to_uint8, transform
 
