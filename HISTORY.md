@@ -6,6 +6,7 @@
 * Development moves to https://github.com/burningsage/disco-tif.
 * Packaging moves from setup.py to pyproject.toml. Dependencies drop to numpy and rasterio; earthpy, pandas, seaborn and scikit-learn are no longer required.
 * Breaking: the 0.0.x functions are removed. Pin `disco-tif<0.1` to keep them.
+* Breaking: colorizing, the color LUT files, the MapServer mapfile writers and the plotting helpers are gone with no replacement. Style files for log colormaps in QGIS and ArcGIS can be written with GeoWrangler.
 
 ## 0.0.3 (2024-05-14)
 

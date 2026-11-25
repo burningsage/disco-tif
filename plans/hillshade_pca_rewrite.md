@@ -45,13 +45,11 @@ Consequences:
 
 - Hillshade PCA, the core of the package.
 - Single hillshades as a by-product, since they are cheap once the normals exist.
-- Colorizing in `colorize.py`: the paletted single-band uint8 GeoTIFF writer, which is compact and displays in every GIS, and the pseudo-hist-norm and pseudo-linear breaks. It takes a matplotlib colormap name or any `matplotlib.colors.Colormap` object. Color files such as Geosoft `.tbl` or `.clr` are loaded by the caller, for example with GeoWrangler's `tbl_to_mpl_cmap`, and the resulting object is passed in. disco-tif never imports GeoWrangler.
-
 ### Drop
 
-- The 8-color EMerald palette and its name.
+- Colorizing (revised 2026-11-25, see decision 2): the paletted uint8 GeoTIFF writer, the pseudo-hist-norm and pseudo-linear breaks, and the 8-color EMerald palette.
 - The six LUT flavors and the MapServer mapfile writers, which were built for the old map-server hosting.
-- The plotting helpers, apart from one optional quick-look function behind a `[plot]` extra.
+- The plotting helpers. The Phase 6 example notebook plots with matplotlib directly.
 - The dependencies on earthpy, seaborn, pandas and scikit-learn. earthpy is dropped because we would use only its hillshade, and that formula is about ten lines. The parts we need to change are exactly the parts it gets wrong: cell size and the axis convention. Its formula is kept as a reference inside a test, so at unit spacing the new code must reproduce the current outputs.
 
 ### Not in v1
@@ -71,8 +69,7 @@ disco_tif/
   io.py            # cell spacing from CRS, vertical units, reading to meters/NaN; later writers, basis JSON
   shading.py       # sun vectors and shading of normals (hillshade.py until Phase 4, renamed so the hillshade() function does not shadow it)
   hspca.py         # streamed fit_basis, apply_basis, hillshade_pca, hillshade on files
-  cli.py           # disco-tif hspca / fit-basis / apply-basis
-  colorize.py      # paletted uint8 GeoTIFF + hist-norm / linear breaks, any mpl Colormap
+  cli.py           # disco-tif hspca / fit-basis / apply-basis / hillshade
 tests/
 pyproject.toml
 ```
@@ -141,7 +138,7 @@ Each phase is one GitHub issue on the fork.
 - Enable Issues on `burningsage/disco-tif`, open the phase issues and add them to the project board.
 - Merge `Dev` into `master`, so master holds the last working 0.0.x code, then branch `rewrite` from `master`.
 - Update LICENSE.md: keep "Copyright (c) 2024 EMerald Geomodelling" and add "Copyright (c) 2026 Benjamin Bloss". Still MIT.
-- Replace `setup.py` with `pyproject.toml`: requires-python >= 3.10, dependencies numpy >= 1.24 and rasterio >= 1.3, a `[plot]` extra for matplotlib, and a `[test]` extra for pytest and scikit-learn. The `disco-tif` console script is added in Phase 4 together with `cli.py`, so no broken entry point ships before then.
+- Replace `setup.py` with `pyproject.toml`: requires-python >= 3.10, dependencies numpy >= 1.24 and rasterio >= 1.3, a `[plot]` extra for matplotlib (removed in Phase 5), and a `[test]` extra for pytest and scikit-learn. The `disco-tif` console script is added in Phase 4 together with `cli.py`, so no broken entry point ships before then.
 - Point the project URLs at the fork, and update the author email.
 - Add `Notebook_summary_read_me.md`.
 - Add a GitHub Actions workflow that runs the tests on 3.10 to 3.13.
@@ -177,10 +174,9 @@ Each phase is one GitHub issue on the fork.
 - The component and RGB writers, single `hillshade`, and the CLI (`disco-tif hspca`, `fit-basis`, `apply-basis`).
 - Run on `example_data/USGS_LiDAR/USGS_LiDAR_1.tif` and compare against the old Dev outputs by eye. The only expected differences are the corrected slope scaling and the fixed signs.
 
-### Phase 5: colorize
+### Phase 5: remove the 0.0.x modules
 
-- `colorize.py` with the paletted uint8 GeoTIFF writer and the pseudo-hist-norm and pseudo-linear breaks. It takes an mpl colormap name or a `Colormap` object, and fixes the nodata, all-negative and float-range bugs.
-- Test with a named mpl colormap, a `ListedColormap`, and a `.tbl` loaded through GeoWrangler in a GeoWrangler-side test.
+- Delete `process_sb_tiff`, `look_up_tables`, `hillshades_pca`, `geotiff_plotting` and `write_mapfile`, and the unused `[plot]` extra. Colorizing is dropped rather than rewritten (decision 2).
 
 ### Phase 6: docs, release and GeoWrangler
 
@@ -192,8 +188,8 @@ Each phase is one GitHub issue on the fork.
 ## Decisions (2026-11-16)
 
 1. **Old API: break it.** 0.1.0 removes `build_hillshade`, `MakeHillShadePCA`, `make_rgba_tiff_from_single_Band` and the rest, with no deprecated wrappers. pypistats shows about 110 downloads in the 180 days from 2026-05-18, likely mostly bots and mirrors. A GitHub code search finds no public code importing `disco_tif` outside the burningsage and EMerald repos. 0.0.3 stays on PyPI for anyone who pins it.
-2. **Colorize: keep it in disco-tif** as `colorize.py`.
-3. **Palettes: drop the EMerald palette.** Colorizing takes any matplotlib colormap name or `Colormap` object. Color files (`.tbl`, `.clr`) are loaded by the caller, for example with GeoWrangler, and passed in as objects, so disco-tif never imports GeoWrangler.
+2. **Colorize: drop it** (revised 2026-11-25; first decided as keep). The paletted uint8 writer is standard GDAL, the pseudo-hist-norm breaks bake in a stretch that QGIS and ArcGIS do live and that no legend can read, and the mapfile and LUT outputs only served the old map server. Log colormaps for resistivity grids and voxel slices are a GeoWrangler job: its `gw_symbology` writes QGIS and ArcGIS style files with log-spaced stops. disco-tif stays a DEM shading package.
+3. **Palettes: drop the EMerald palette**, together with colorizing.
 4. **Mixed resolutions: refuse unless allowed.** `fit_basis` raises an error when input cell sizes differ by more than 2x, unless `allow_mixed_resolution=True`.
 5. **Clipped or shadowed hillshades: not in v1.** If they are wanted later, the route is to fit on explicit hillshades from a pixel sample, then transform block by block. That is approximate, unlike the 3x3 route.
 6. **Output default: uint8**, with 0 as nodata. float32 with NaN is an option.
