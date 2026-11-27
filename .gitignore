@@ -8,3 +8,8 @@
 *.tif.aux.xml
 *.html
 dist/
+build/
+.pytest_cache/
+.venv/
+.DS_Store
+example_data/USGS_LiDAR/

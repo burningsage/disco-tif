@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "disco-tif"
+dynamic = ["version"]
+description = "Principal-component hillshades for digital elevation models, at any raster size"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE.md"]
+authors = [{ name = "Benjamin Bloss", email = "benjamin@blossgeo.com" }]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "rasterio>=1.3",
+]
+keywords = ["hillshade", "pca", "dem", "dtm", "lidar", "raster", "geotiff", "terrain visualization"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: GIS",
+]
+
+[project.scripts]
+disco-tif = "disco_tif.cli:main"
+
+[project.optional-dependencies]
+test = ["pytest>=7", "scikit-learn>=1.3"]
+
+[project.urls]
+Homepage = "https://github.com/burningsage/disco-tif"
+Issues = "https://github.com/burningsage/disco-tif/issues"
+Changelog = "https://github.com/burningsage/disco-tif/blob/master/HISTORY.md"
+
+[tool.setuptools.dynamic]
+version = { attr = "disco_tif._version.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["disco_tif*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

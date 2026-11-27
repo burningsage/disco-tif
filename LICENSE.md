@@ -1,6 +1,7 @@
 MIT License
 
 Copyright (c) 2024 EMerald Geomodelling
+Copyright (c) 2026 Benjamin Bloss
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

@@ -1,66 +1,91 @@
-# disco_tif
-A few general raster tools for visualization of single-channel geotiffs, like a digital terrain model.
+# disco-tif
 
-<figure1>
-    <img src="https://github.com/emerald-geomodelling/disco-tif/assets/15694972/4a866549-f045-4808-8216-072e827e8a04" width="500" height="500>
-    <figcaption>Original Geotiff from Blue Mesa Reservoir in Colorado, USA</figcaption>
-</figure1>
+Principal-component hillshades for digital elevation models, at any raster size.
 
-<figure2>
-    <img src="https://github.com/emerald-geomodelling/disco-tif/assets/15694972/d58de89a-6bad-48f9-810d-5164f971fdf6" width="500" height="500>
-    <figcaption>Colorized Geotiff from Blue Mesa Reservoir in Colorado, USA</figcaption>
-</figure2>
+![Hillshade, PC1, PC2 and the RGB composite of a 1 m LiDAR DTM](docs/images/hspca_example.jpg)
 
-"https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/1m/Projects/CO_WestCentral_2019_A19/TIFF/USGS_1M_13_x29y426_CO_WestCentral_2019_A19.tif"
+*A 2.5 km crop of a 1 m USGS 3DEP LiDAR tile near Blue Mesa Reservoir, Colorado. Top left is an ordinary hillshade with the sun at azimuth 315 and altitude 45. The other panels are the first two principal components of 16 hillshades (8 azimuths at 30 and 60 degrees) and the RGB composite of the first three. Made by the [example notebook](example_notebooks/hillshade_pca_example.ipynb).*
 
-The primary utility of this library is to take a single-channel geotiff, like a digital terrain model, and create an rgba (either 8 bit, or 32 bit) geotiff as well as hillshades of the raster and a principle-component-analysis of a grouping of hillshades.
+A single hillshade hides every feature that runs parallel to its sun. The usual fix is to shade from many directions and reduce the stack with principal component analysis, so the first few components carry the relief from all of them (Devereux et al. 2008). disco-tif does that without ever building the stack, which makes it fast and lets it stream rasters of any size in fixed memory.
 
-![image](https://github.com/emerald-geomodelling/disco-tif/assets/15694972/16a081fc-defb-4b74-9399-42bafcc0efe8) ![image](https://github.com/emerald-geomodelling/disco-tif/assets/15694972/72bfa4a8-c2d6-4654-9d7a-cb2d6912a2b5)
+## Install
 
+```bash
+pip install disco-tif
+```
 
+It needs only numpy and rasterio.
 
+## Quick start
 
-This library.
+From the command line:
 
-Besides generating a custom, data driven, colormap the libray can take a named colormap from matplotlib (https://matplotlib.org/stable/users/explain/colors/colormaps.html).
+```bash
+disco-tif hspca dtm.tif
+```
 
-Basically, the EMerald_standard_colormap consists of 8 colors, as seen below.
-![image](https://github.com/emerald-geomodelling/disco-tif/assets/15694972/578de983-d28b-49be-8c0f-49e2f4d92817)
-The dark blue color is reserved for negative data values. If the data range supplied does not have any negative data then the minimum color will start at cyan.
-Essentially, we have three cases for the minimum value of the data range:
-  1) The minimum value of the data range is less than 0:
-     - Here negative data will be mapped lineraly from the min value to 0, which will be cyan
-  2) The minimum value of the data range is 0:
-     - Here the dark blue will be excluded and cyan will be mapped to 0
-  3) The minimum value of the data range is greater than 0:
-     - Here cyan will be mapped to the minimum value
+That writes `dtm_hspca_c1.tif`, `_c2.tif` and `_c3.tif` (one uint8 GeoTIFF per component), `dtm_hspca_rgb.tif` (the three as an RGB composite) and `dtm_hspca_basis.json` next to the DEM. Use `--out-dir` to put them elsewhere, and `disco-tif hspca --help` for the sun angles, the stretch and the other options.
 
-The rest of the colormap can be created in one of two ways: either 'pseudo-hist-norm' or 'pseudo-linear'.
-If 'pseudo-hist-norm' is specified, the positive region of the data range will be normalized by the histogram of the data - i.e. every colorbin will have roughly equal counts. The plot below is for the example data found in the in the 'example_data' folder of this library. You will need to download the original geotiff. Here we are using a min-max datarange = [-407, 5825]
-![image](https://github.com/emerald-geomodelling/disco-tif/assets/15694972/19873800-9da2-4c22-9060-673481887003)
-  yeliding a colormap that looks like this:
-![image](https://github.com/emerald-geomodelling/disco-tif/assets/15694972/bfb1483f-8346-4a3d-a1a1-73557136634b)
+From Python:
 
-if 'pseudo-linear' is specified, the positive region of the data range will be linearly mapped to the colormap. This will yeild a mapping like
-![image](https://github.com/emerald-geomodelling/disco-tif/assets/15694972/3b3e4451-dd3f-47ef-9950-93ad2d8a66f9)
-  yeliding a colormap that looks like this:
-![image](https://github.com/emerald-geomodelling/disco-tif/assets/15694972/9f8388c7-582d-486c-9aec-f48f87002803)
+```python
+import disco_tif
 
-Both of these colormaps are valid and the end user should evaluate which fits their needs better.
+products = disco_tif.hillshade_pca("dtm.tif", "out/")
+products["c1"]   # path to the first component
+```
 
-The end user has the ability to write these colormaps to a look-up-table (lut) file. For maximum usability these there are several flavors of LUTs written.
-  1) one band per file - these are appended with "_r.lut", "_g.lut", "_b.lut", and "_a.lut"
-  2) all four bands in one file - There will be an "rgba" in the file name
-  3) all four bands in one file including the no-data value - There will be an "rgba" and "NAN" in the file name
-  4) a QGIS (possibly other GIS software) compatible look up table - this has the extension ".txt"
+## Many tiles, one basis
 
-In building the colormaps a user can specify data min-max values, but if no data range is specified the program will choose min-max values based on the 1st and 99th percentile (quartile) of the data values.
+To give a set of tiles or survey blocks the same color scale, fit one basis to all of them and apply it to each:
 
-In addition to generating new colorized geotiffs this library has the ability to generate hillshades. This is just a wrapper around earthpy. For this you can specify a sun_azimuth angle and an sun_altitude angle to generate the hill shade. You can also pass in an array of sun_azimuth angles and/or and array of sun_altitude angles. This program will generate a new hillshade for each of the combiniations of azimuths and altitudes.
-One unique feature that is built into this library is the ability to do priciple-component-analysis on a series of hillshades. Currently the first 3 components of the PCA are saved and output. I find that this really helps highlight prominent features in a geotiff, however, if the source raster is of low-quality or generated from different sources you may also notice gridding and/or processing artifacts. For the example data in the geotiff you will imeadieatly notice these gridding and processing artifacts. Currently there is a limitation of the number of hillshades allowed to be used in the pca, but this is arbitrary and is only a function of computer resources. On my M1 MacBook Pro I have successfully used 32 hillshades for a PCA on this example datset which is only 30mb, but beware that larger rasters or higher resolution rasters will be a lot heavier and could cause your kernel to crash or worse. 
+```bash
+disco-tif fit-basis tile_*.tif -o basis.json
+disco-tif apply-basis basis.json tile_*.tif --out-dir out/
+```
 
-Please see the example notebooks in the 'example_notbooks' folder for function calls and how to use them. [This notebook](/example_notebooks/process_tiff_from_functions.ipynb) plots the output of each function. [This notebook](/example_notebooks/streamlined_example_usage.ipynb) demonstrates how to use these tools for automation.
+or in Python:
 
-Lastly, If you are using a mapsource mapfile this program will write the file for you. This is the least tested part of this library, so please fork, edit, and make pull-requests as you use this library! 
+```python
+basis = disco_tif.fit_basis(["tile_1.tif", "tile_2.tif"])
+for dem in ["tile_1.tif", "tile_2.tif"]:
+    disco_tif.apply_basis(dem, basis, "out/")
+```
 
-Thanks for reading and happy disco_tif-ing 
+The basis is exactly the one you would get from a mosaic of all the inputs, without building the mosaic. The basis JSON records the sun angles, the eigenvalues, the stretch and the inputs, so the same basis can be applied to new tiles later.
+
+One caveat: tiles cut from one DEM have no neighbor across their shared edge, so the cells on either side of a seam get one-sided gradients and differ slightly from a whole read. For one seamless product, run on a GDAL VRT of the tiles, which disco-tif reads block by block like any other raster:
+
+```bash
+gdalbuildvrt mosaic.vrt tile_*.tif
+disco-tif hspca mosaic.vrt
+```
+
+Inputs whose cell sizes differ by more than a factor of 2 are refused, since slopes at different resolutions are not comparable. Pass `--allow-mixed-resolution` to override.
+
+## How it works
+
+An unclipped hillshade is the dot product of the unit surface normal with the unit vector toward the sun. A stack of N hillshades is therefore the normals times an N-by-3 matrix of sun vectors, and its covariance has rank 3 at most, however many suns are used. Everything the PCA needs is the 3x3 covariance of the normals, and the component scores are a fixed linear combination of the normal's east, north and up parts.
+
+So disco-tif reads the DEM in blocks (with a one-cell halo, so block edges do not show), adds up the moments of the normals, solves a 3x3 eigenproblem, and makes a second pass to write the products. Memory is set by the block size, not the raster size. A 1 m LiDAR tile of 100 million cells takes about 35 s and 450 MB on a laptop, and the 16 hillshades are never computed.
+
+Other details:
+
+- Gradients use the real cell spacing from the CRS, including geographic CRSs, where the east spacing shrinks with latitude. Set the elevation unit with `--z-units` (`m`, `ft` or `us_ft`) when it differs from the CRS unit.
+- Components have a fixed sign: PC1 correlates positively with the hillshade at azimuth 315 and altitude 45, so it reads like a normal hillshade, and PC2 and PC3 have their largest weight positive. Reruns and different tiles give the same signs.
+- The uint8 products stretch each component between its 1st and 99th percentiles to values 1-255, with 0 as nodata. `--dtype float32` writes the raw scores with NaN as nodata instead.
+- When PC1 and PC2 explain nearly the same variance, which happens with evenly spaced suns on terrain without a dominant grain, their order and orientation are arbitrary. disco-tif logs a warning and records the eigenvalue ratios in the basis JSON.
+- `disco-tif hillshade` writes a single hillshade with the same real-spacing gradients.
+
+## Prior art
+
+- Devereux, B. J., Amable, G. S. and Crow, P. (2008). Visualisation of LiDAR terrain models for archaeological feature detection. Antiquity 82(316), 470-479. PCA of many hillshades.
+- [Relief Visualization Toolbox](https://github.com/EarthObservation/RVT_py) and GRASS [r.shaded.pca](https://grass.osgeo.org/grass-stable/manuals/addons/r.shaded.pca.html) both compute hillshade PCA from an explicit stack of hillshades held in memory.
+
+## History
+
+disco-tif started at EMerald Geomodelling as a set of tools for colorizing and hillshading GeoTIFFs. Version 0.1.0 is a rewrite around the closed-form hillshade PCA and drops the colorizing, lookup-table and mapfile functions. Pin `disco-tif<0.1` to keep the old API. See [HISTORY.md](HISTORY.md).
+
+## License
+
+MIT. See [LICENSE.md](LICENSE.md).
